@@ -148,9 +148,9 @@ def main():
                 analizar_palabras_y_emojis(st.session_state.df_chat)
 
             elif opcion_elegida == "Selecciona una opción...":
-                st.info("Selecciona un análisis en el panel izquierdo para ver los resultados aquí.")
+                st.info("Selecciona un análisis para ver los resultados aquí.")
         
         else:
-            st.info("Carga un archivo y selecciona un análisis en el panel izquierdo para ver los resultados aquí.")
+            st.info("Carga un archivo y selecciona un análisis para ver los resultados aquí.")
 
 
