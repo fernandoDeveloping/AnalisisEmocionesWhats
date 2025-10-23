@@ -11,7 +11,7 @@ from collections import Counter
 import string
 import os
 from Utils.Metodos import cargar_modelo_sentimientos
-
+import numpy as np # Importar numpy para los gradientes
 
 @st.cache_data
 def analizar_compatibilidad(_df_chat):
@@ -82,7 +82,19 @@ def analizar_compatibilidad(_df_chat):
     
     intereses_comunes = (len(interseccion) / len(union)) * 100 if len(union) > 0 else 0
 
-    # --- Graficar ---
+    # --- MÉTRICA 5: Equilibrio Amistad/Amor (NUEVO) ---
+    # Asignamos métricas a cada categoría
+    friendship_metric = (balance_charla + intereses_comunes) / 2
+    love_metric = (vibra_positiva + sincronia_emocional) / 2
+    total_metric = friendship_metric + love_metric
+    
+    if total_metric == 0:
+        gauge_value = 50.0 # Neutral si no hay datos
+    else:
+        # El valor es el porcentaje de "Amor" del total
+        gauge_value = (love_metric / total_metric) * 100
+
+    # --- Graficar (GRÁFICO 1: Barras de Compatibilidad) ---
     st.write("--- Medidor de Compatibilidad ---")
     data = {
         'Métrica': [
@@ -101,8 +113,33 @@ def analizar_compatibilidad(_df_chat):
     df_compat = pd.DataFrame(data).set_index('Métrica').sort_values('Puntaje (%)', ascending=True)
 
     fig, ax = plt.subplots(figsize=(10, 5))
-    # Usamos 'color' para el tono rosado
-    df_compat['Puntaje (%)'].plot(kind='barh', ax=ax, color='#FFB6C1', xlim=(0, 100))
+    # Quitamos el color sólido
+    df_compat['Puntaje (%)'].plot(kind='barh', ax=ax, xlim=(0, 100), zorder=1)
+    
+    # --- INICIO: Aplicar Gradiente a las barras ---
+    # Definimos un colormap (e.g., 'Reds', 'pink_r', 'YlOrRd')
+    cmap = plt.cm.get_cmap('Reds')
+    # Creamos un gradiente lineal. Usamos linspace para crear un array de 256 puntos
+    # Empezamos en 0.4 para evitar los colores muy claros/blancos
+    gradient_colors = cmap(np.linspace(0.4, 1.0, 256).reshape(1, -1))
+
+    # Iteramos sobre cada barra (patch) dibujada
+    for bar in ax.patches:
+        x0, y0 = bar.get_xy()
+        width, height = bar.get_width(), bar.get_height()
+        
+        # Omitir barras con ancho 0 o negativo
+        if width <= 0:
+            continue
+            
+        # Usamos ax.imshow para "pegar" la imagen del gradiente
+        # encima de la coordenada de la barra
+        ax.imshow(gradient_colors, 
+                  extent=[x0, x0 + width, y0, y0 + height], 
+                  aspect='auto', 
+                  zorder=2) # zorder=2 la pone encima de la barra base
+    # --- FIN: Aplicar Gradiente ---
+
     ax.set_title(f'Compatibilidad entre "{autor_1}" y "{autor_2}"', fontsize=16)
     ax.set_xlabel('Puntaje (0-100)', fontsize=12)
     ax.set_ylabel('')
@@ -113,7 +150,49 @@ def analizar_compatibilidad(_df_chat):
             row['Puntaje (%)'] + 1, 
             i, 
             f'{row["Puntaje (%)"]:.1f}%', 
-            color='black', va='center'
+            color='black', va='center',
+            zorder=3 # Asegurarnos que el texto esté encima del gradiente
         )
     
     st.pyplot(fig)
+
+    # --- Graficar (GRÁFICO 2: Medidor Amistad/Amor) (NUEVO) ---
+    st.write("--- Equilibrio de la Relación ---")
+    
+    fig_gauge, ax_gauge = plt.subplots(figsize=(10, 2))
+    
+    # La barra de fondo (gradiente de amistad a amor)
+    # Usaremos un colormap 'coolwarm' (Azul -> Rojo)
+    cmap_gauge = plt.cm.get_cmap('coolwarm')
+    gauge_gradient = cmap_gauge(np.linspace(0, 1, 256).reshape(1, -1))
+    
+    # Dibujamos el gradiente como una imagen en el eje
+    ax_gauge.imshow(gauge_gradient, extent=[0, 100, -0.02, 0.02], aspect='auto')
+    
+    # El marcador (un triángulo 'v')
+    # Lo dibujamos con un borde negro para mejor visibilidad
+    ax_gauge.plot(gauge_value, 0, 'v', 
+                  markersize=25, color='black', 
+                  clip_on=False, zorder=10)
+    ax_gauge.plot(gauge_value, 0, 'v', 
+                  markersize=20, color='white', 
+                  clip_on=False, zorder=11)
+    
+    # Etiquetas de texto
+    tendencia = "Amor" if gauge_value > 55 else ("Amistad" if gauge_value < 45 else "Equilibrio")
+    ax_gauge.text(gauge_value, 0.1, f'{gauge_value:.0f}% (Tendencia: {tendencia})', 
+                  ha='center', fontsize=12, weight='bold')
+    
+    ax_gauge.text(0, -0.1, 'Amistad 🤝', ha='left', fontsize=12, weight='bold')
+    ax_gauge.text(100, -0.1, 'Amor ❤️', ha='right', fontsize=12, weight='bold')
+
+    # Limpiar ejes
+    ax_gauge.set_yticks([]) # Quitar marcas del eje Y
+    ax_gauge.set_xticks([]) # Quitar marcas del eje X
+    ax_gauge.set_xlim(-5, 105) # Añadir un pequeño margen
+    ax_gauge.set_ylim(-0.2, 0.2) # Espacio para las etiquetas
+    
+    # Quitar el borde de la figura
+    plt.box(False)
+    
+    st.pyplot(fig_gauge)
