@@ -39,7 +39,6 @@ def cargar_modelo_emociones():
     Carga y cachea el modelo de EMOCIONES.
     _resource se usa para objetos complejos (como modelos) que no deben ser serializados.
     """
-    st.info("Cargando modelo de análisis de emociones (solo la primera vez)...")
     return create_analyzer(task="emotion", lang="es")
 
 @st.cache_resource
@@ -47,7 +46,6 @@ def cargar_modelo_sentimientos():
     """
     Carga y cachea el modelo de SENTIMIENTOS (Pos/Neg/Neu).
     """
-    st.info("Cargando modelo de análisis de sentimientos (solo la primera vez)...")
     return create_analyzer(task="sentiment", lang="es")
 
 # --- Funciones de Procesamiento de Datos (Cacheadas) ---
