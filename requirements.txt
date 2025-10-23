@@ -1,0 +1,6 @@
+streamlit
+pandas
+matplotlib
+seaborn
+pysentimiento[es]
+nltk

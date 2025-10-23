@@ -1,2 +1,30 @@
-# Created by venv; see https://docs.python.org/3/library/venv.html
-*
+# Entornos virtuales
+venv/
+.venv/
+Lib/
+env/
+ENV/
+
+# Caché de Python
+__pycache__/
+*.py[cod]
+
+# Archivos grandes o binarios
+*.dll
+*.so
+*.dylib
+*.exe
+*.log
+*.zip
+*.tar
+*.gz
+*.pt
+*.h5
+*.pkl
+*.csv
+
+# Notebooks temporales
+.ipynb_checkpoints/
+
+# Configs locales
+*.env
