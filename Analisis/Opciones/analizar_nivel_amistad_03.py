@@ -55,7 +55,7 @@ def analizar_nivel_amistad(_df_chat):
     """
     Opción 3: Analiza el nivel de amistad y la dinámica de un grupo (2 o más autores).
     """
-    st.subheader("Análisis de Amistad del Grupo")
+    st.subheader("Análisis de Amistad")
 
     if _df_chat.empty:
         st.warning("No se encontraron mensajes válidos para analizar.")
@@ -69,14 +69,14 @@ def analizar_nivel_amistad(_df_chat):
         return
         
     autores_principales = autores_counts.index.tolist()
-    st.write(f"Analizando la dinámica de **{num_autores}** participantes: *{', '.join(autores_principales)}*")
+    st.write(f"Analizando la dinámica de amistad entre {num_autores} participantes.")
 
     # Cargar modelo (de la caché) y stopwords
     try:
         sentiment_analyzer = cargar_modelo_sentimientos()
         stop_words_es = set(stopwords.words('spanish'))
         # Añadir palabras comunes de chat que no aportan significado
-        stop_words_es.update(['jaja', 'jajaja', 'jeje', 'jejeje', 'ok', 'vale', 'si', 'no', 'q', 'k', 'https'])
+        stop_words_es.update(['jaja', 'jajaja', 'jeje', 'jejeje', 'ok', 'vale', 'si', 'no', 'q', 'k', 'https', 'JAJAJA', 'JAJA', 'ja JA JA'])
     except Exception as e:
         st.error(f"Error al cargar recursos de NLTK o el modelo de sentimientos: {e}")
         return
@@ -160,10 +160,10 @@ def analizar_nivel_amistad(_df_chat):
     st.write("--- Pilares de la Amistad del Grupo ---")
     data = {
         'Métrica': [
-            'Intereses Comunes 🗣️', 
-            'Sincronía Emocional 😊', 
-            'Balance de Participación ⚖️', 
-            'Vibra Positiva General 💖'
+            'Intereses Comunes', 
+            'Sincronía Emocional', 
+            'Balance de Participación', 
+            'Vibra Positiva General'
         ],
         'Puntaje (%)': [
             intereses_comunes, 
@@ -194,7 +194,7 @@ def analizar_nivel_amistad(_df_chat):
                   zorder=2)
     # --- Fin Gradiente ---
 
-    ax.set_title(f'Análisis de Amistad del Grupo ({num_autores} participantes)', fontsize=16)
+    ax.set_title(f'Análisis de Amistad', fontsize=16)
     ax.set_xlabel('Puntaje (0-100)', fontsize=12)
     ax.set_ylabel('')
     
@@ -210,7 +210,7 @@ def analizar_nivel_amistad(_df_chat):
     st.pyplot(fig)
 
     # --- Graficar (GRÁFICO 2: Medidor Nivel de Amistad) (MODIFICADO) ---
-    st.write("--- Nivel de Amistad General ---")
+    st.write("**\t\t--- Nivel de Amistad General ---**")
     
     fig_gauge, ax_gauge = plt.subplots(figsize=(10, 2))
     
@@ -233,13 +233,13 @@ def analizar_nivel_amistad(_df_chat):
     
     # Etiquetas de texto
     if gauge_value > 75:
-        tendencia = "Muy Fuerte 🔥"
+        tendencia = "Muy Fuerte"
     elif gauge_value > 50:
-        tendencia = "Fuerte 😊"
+        tendencia = "Fuerte"
     elif gauge_value > 25:
-        tendencia = "Regular 🤝"
+        tendencia = "Regular"
     else:
-        tendencia = "Baja 🧊"
+        tendencia = "Baja"
         
     ax_gauge.text(gauge_value, 0.1, f'Puntaje: {gauge_value:.0f}% ({tendencia})', 
                   ha='center', fontsize=12, weight='bold')
