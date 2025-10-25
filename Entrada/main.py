@@ -2,7 +2,7 @@ import streamlit as st
 from Analisis.Utils.aux_opciones import procesar_chat
 from Analisis.Opciones.msgcount_01 import mostrar_analisis_conversacion
 from Analisis.Opciones.sentimientos_02 import analizar_emociones
-from Analisis.Opciones.compatibilidad_03 import analizar_compatibilidad
+from Analisis.Opciones.analizar_nivel_amistad_03 import analizar_nivel_amistad
 from Analisis.Opciones.actividad_04 import analizar_actividad
 from Analisis.Opciones.palabras_05 import analizar_palabras_y_emojis
 from Disclaimer.privacidad import show_privacy_notice
@@ -117,7 +117,7 @@ def main():
             "Selecciona una opción...",
             "1. Análisis de Autores",
             "2. Análisis de Emociones",
-            "3. Análisis de Compatibilidad",
+            "3. Análisis de Nivel de Amistad",
             "4. Análisis de Actividad y Horarios", 
             "5. Palabras y Emojis Más Usados"   
         ]
@@ -138,8 +138,8 @@ def main():
             elif opcion_elegida == "2. Análisis de Emociones":
                 analizar_emociones(st.session_state.df_chat)
                 
-            elif opcion_elegida == "3. Análisis de Compatibilidad":
-                analizar_compatibilidad(st.session_state.df_chat)
+            elif opcion_elegida == "3. Análisis de Nivel de Amistad":
+                analizar_nivel_amistad(st.session_state.df_chat)
             
             elif opcion_elegida == "4. Análisis de Actividad y Horarios":
                 analizar_actividad(st.session_state.df_chat)

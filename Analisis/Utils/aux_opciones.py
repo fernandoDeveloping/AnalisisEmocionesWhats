@@ -97,6 +97,36 @@ def procesar_chat(uploaded_file):
             continue
             
     df = df[~df['Mensaje'].str.contains(r"<Multimedia omitido>|Se eliminó este mensaje|ubicación: http", na=False, case=False, regex=True)]
+    # 2. Definir patrones de regex para limpiar
+    # Regex para risas:
+    # \b -> Límite de palabra (para no cortar "viajar")
+    # ((j[aeiou]?s?)\s*){2,} -> Captura "ja", "je", "js", "j" y sus repeticiones
+    # (con o sin espacios "ja ja") al menos 2 veces.
+    regex_risas = r'\b((j[aeiou]?s?)\s*){2,}\b'
+    
+    # Regex para saludos y palabras específicas
+    # \b(palabra1|palabra2|...)\b -> Captura solo esas palabras exactas
+    regex_palabras = r'\b(hola|holi|olis|holis|holiwi|holiwwi|voy|ok|vale|bueno|xd)\b'
+    
+    # 3. Combinar todos los patrones en uno solo
+    # (?:...) es un grupo que no captura, es más eficiente
+    # Usamos | (OR) para unir los patrones
+    patron_total = f"({regex_risas}|{regex_palabras})"
+    
+    # 4. Aplicar la limpieza con str.replace
+    # Reemplaza todos los patrones encontrados con una cadena vacía
+    # case=False hace que ignore mayúsculas (JAJA, Hola, XD)
+    df['Mensaje'] = df['Mensaje'].str.replace(
+        patron_total, 
+        '', 
+        case=False, 
+        regex=True
+    )
+
+    # 5. Limpieza de espacios sobrantes
+    # Al eliminar palabras, pueden quedar espacios dobles ("  ")
+    # Reemplazamos 2 o más espacios por uno solo
+    df['Mensaje'] = df['Mensaje'].str.replace(r'\s{2,}', ' ', regex=True)
     df['Mensaje'] = df['Mensaje'].str.strip()
     df = df[df['Mensaje'].str.len() > 0]
     
