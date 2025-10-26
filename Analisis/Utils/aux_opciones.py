@@ -1,137 +1,153 @@
-import streamlit as st
 import pandas as pd
 import re
 import io
 import zipfile
-import matplotlib.pyplot as plt
-import seaborn as sns
-import nltk
-from nltk.corpus import stopwords
-from collections import Counter
-import string
-import os
+import unicodedata
+import streamlit as st
 
-
-
-@st.cache_data
-def procesar_chat(uploaded_file):
+def limpieza_estricta_texto(texto):
     """
-    Toma un archivo subido (zip o txt) y lo convierte en un DataFrame.
-    Esta función se cachea. Si se sube el mismo archivo, no se reprocesa.
+    Limpia texto: minúsculas, sin tildes (opcional), conserva emojis y caracteres Unicode visibles.
     """
+    if not isinstance(texto, str):
+        return ""
+    texto = texto.lower()
+    # Normaliza tildes (mantiene emojis y otros símbolos Unicode intactos)
+    texto = unicodedata.normalize('NFD', texto)
+    texto = ''.join(c for c in texto if unicodedata.category(c) != 'Mn' or not c.isascii())
+    # Limpia caracteres de control, pero mantiene emojis, signos, puntuación normal y emojis Unicode
+    texto = re.sub(r'[\x00-\x1f\x7f-\x9f]+', '', texto)  # elimina caracteres invisibles
+    texto = re.sub(r'\s{2,}', ' ', texto).strip()  # normaliza espacios múltiples
     
-    # 1. Leer el archivo desde memoria
+    return texto
+
+
+
+def procesar_chat(uploaded_file):
+    """Lee y parsea un chat de WhatsApp (.txt o .zip) adaptándose a distintos formatos."""
     try:
         content_bytes = uploaded_file.getvalue()
-        
-        # Lógica para .zip
         if uploaded_file.name.endswith('.zip'):
             with zipfile.ZipFile(io.BytesIO(content_bytes), 'r') as zip_ref:
-                for file_in_zip in zip_ref.namelist():
-                    if file_in_zip.endswith('.txt') and not file_in_zip.startswith('__MACOSX'):
-                        with zip_ref.open(file_in_zip) as txt_file:
-                            content_bytes = txt_file.read()
-                            break # Usar el primer .txt encontrado
-        
-        # Decodificar y separar en líneas
-        # Usamos .splitlines() para manejar saltos de línea
-        content_str = content_bytes.decode('utf-8')
-        lines = content_str.splitlines()
+                txt_files = [f for f in zip_ref.infolist()
+                             if f.filename.endswith('.txt') and not f.is_dir()]
+                if not txt_files:
+                    st.error("El ZIP no contiene archivos .txt válidos.")
+                    return pd.DataFrame(columns=['Timestamp', 'Autor', 'Mensaje'])
+                txt_files.sort(key=lambda f: f.file_size, reverse=True)
+                with zip_ref.open(txt_files[0].filename) as txt_file:
+                    content_bytes = txt_file.read()
 
+        try:
+            content_str = content_bytes.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            content_str = content_bytes.decode('latin-1')
+
+        lines = content_str.splitlines()
     except Exception as e:
         st.error(f"Error al leer el archivo: {e}")
         return pd.DataFrame(columns=['Timestamp', 'Autor', 'Mensaje'])
 
-    # 2. Lógica de Parseo (Tu código original)
-    patron_inicio = re.compile(
-        r'^(\d{1,2}/\d{1,2}/\d{2,4}, \d{1,2}:\d{2}(?:[\s\u202f]*(?:a\.[\s\u202f]*m\.|p\.[\s\u202f]*m\.))?)\s*-\s*'
-    )
-    datos = []
-    mensaje_actual_buffer = None
+    # ---- Limpieza inicial ----
+    RE_CONTROL = re.compile(r'[\x00-\x1f\x7f-\x9f\u200e\u200f\ufeff\u202f\xa0]+')
 
-    for linea in lines:
-        match = patron_inicio.match(linea)
-        if match:
-            if mensaje_actual_buffer:
-                datos.append(mensaje_actual_buffer)
-            
-            timestamp_str = match.group(1)
-            resto_linea = linea[match.end():].strip()
-            partes_autor_msg = resto_linea.split(':', 1)
-            
-            if len(partes_autor_msg) == 2:
-                mensaje_actual_buffer = {
-                    "Timestamp": timestamp_str,
-                    "Autor": partes_autor_msg[0],
-                    "Mensaje": partes_autor_msg[1].strip()
-                }
-            else:
-                mensaje_actual_buffer = None
-        elif mensaje_actual_buffer:
-            mensaje_actual_buffer["Mensaje"] += " " + linea.strip()
+    # ---- 4 posibles formatos de timestamp ----
+    patrones_fallback = [
+        # 1️⃣ "21/9/25, 06:50 - Autor: Mensaje"
+        re.compile(r'^(\d{1,2}/\d{1,2}/\d{2,4},\s*\d{1,2}:\d{2}(?:\s*(?:[ap]\.?m\.?))?)\s*-\s*([^:]+):\s*(.*)', re.IGNORECASE),
+        # 2️⃣ "21/9/25 06:50 - Autor: Mensaje" (sin coma)
+        re.compile(r'^(\d{1,2}/\d{1,2}/\d{2,4}\s+\d{1,2}:\d{2}(?:\s*(?:[ap]\.?m\.?))?)\s*-\s*([^:]+):\s*(.*)', re.IGNORECASE),
+        # 3️⃣ "25/4/2025, 1:35 p. m. - Autor: Mensaje" (con puntos y espacios)
+        re.compile(r'^(\d{1,2}/\d{1,2}/\d{2,4},\s*\d{1,2}:\d{2}\s*[ap]\.\s*m\.)\s*-\s*([^:]+):\s*(.*)', re.IGNORECASE),
+        # 4️⃣ Formato alternativo iOS (por si acaso)
+        re.compile(r'^\[(\d{1,2}/\d{1,2}/\d{2,4},?\s*\d{1,2}:\d{2}(?:\s*(?:[ap]\.?m\.?))?)\]\s*([^:]+):\s*(.*)', re.IGNORECASE),
+    ]
 
-    if mensaje_actual_buffer:
-        datos.append(mensaje_actual_buffer)
+    # ---- Intento progresivo con fallback ----
+    datos, mensaje_buffer = [], []
+    timestamp_actual, autor_actual = None, None
+    patron_usado = None
+
+    for patron in patrones_fallback:
+        datos.clear()
+        mensaje_buffer.clear()
+        timestamp_actual = autor_actual = None
+
+        for linea in lines:
+            linea = RE_CONTROL.sub('', linea).strip()
+            if not linea:
+                continue
+
+            match = patron.match(linea)
+            if match:
+                if autor_actual and timestamp_actual and mensaje_buffer:
+                    datos.append({
+                        "Timestamp_str": timestamp_actual,
+                        "Autor": autor_actual,
+                        "Mensaje": " ".join(mensaje_buffer)
+                    })
+                timestamp_actual = match.group(1).strip()
+                autor_actual = match.group(2).strip()
+                mensaje_buffer = [match.group(3).strip()] if match.group(3).strip() else []
+            elif timestamp_actual and autor_actual:
+                mensaje_buffer.append(linea)
+
+        if autor_actual and timestamp_actual and mensaje_buffer:
+            datos.append({
+                "Timestamp_str": timestamp_actual,
+                "Autor": autor_actual,
+                "Mensaje": " ".join(mensaje_buffer)
+            })
+
+        if len(datos) > 5:  # umbral mínimo para considerar válido
+            patron_usado = patron
+            break
 
     if not datos:
+        st.error("No se reconocieron mensajes con ninguno de los patrones posibles.")
+        st.code('\n'.join(lines[:10]))
         return pd.DataFrame(columns=['Timestamp', 'Autor', 'Mensaje'])
 
-    # 3. Crear y Limpiar DataFrame
+    st.info(f"✔️ Se detectó el formato del chat automáticamente ({len(datos)} mensajes).")
+
+    # ---- Limpieza y normalización ----
     df = pd.DataFrame(datos)
-    df['Timestamp'] = df['Timestamp'].str.replace(r'a\.[\s\u202f]*m\.', 'AM', regex=True)
-    df['Timestamp'] = df['Timestamp'].str.replace(r'p\.[\s\u202f]*m\.', 'PM', regex=True)
-    df['Timestamp'] = df['Timestamp'].str.replace('\u202f', ' ', regex=False) 
+    df['Timestamp_norm'] = df['Timestamp_str'].str.lower()
+    df['Timestamp_norm'] = df['Timestamp_norm'].str.replace(r'\s*([ap])\.?\s*m\.?', r'\1m', regex=True)
+    df['Timestamp_norm'] = df['Timestamp_norm'].str.replace(r'\s+', ' ', regex=True).str.strip()
 
-    # Conversión de fecha robusta
-    formats_to_try = [
-        '%d/%m/%Y, %I:%M %p',
-        '%d/%m/%Y, %H:%M',
-        '%d/%m/%y, %I:%M %p',
-        '%d/%m/%y, %H:%M'
+    formatos = [
+        '%d/%m/%Y, %I:%M%p', '%d/%m/%Y %I:%M%p', '%d/%m/%y, %I:%M%p', '%d/%m/%y %I:%M%p',
+        '%d/%m/%Y, %H:%M', '%d/%m/%Y %H:%M', '%d/%m/%y, %H:%M', '%d/%m/%y %H:%M'
     ]
-    for fmt in formats_to_try:
-        try:
-            df['Timestamp'] = pd.to_datetime(df['Timestamp'], format=fmt)
-            break
-        except ValueError:
-            continue
-            
-    df = df[~df['Mensaje'].str.contains(r"<Multimedia omitido>|Se eliminó este mensaje|ubicación: http", na=False, case=False, regex=True)]
-    # 2. Definir patrones de regex para limpiar
-    # Regex para risas:
-    # \b -> Límite de palabra (para no cortar "viajar")
-    # ((j[aeiou]?s?)\s*){2,} -> Captura "ja", "je", "js", "j" y sus repeticiones
-    # (con o sin espacios "ja ja") al menos 2 veces.
-    regex_risas = r'\b((j[aeiou]?s?)\s*){2,}\b'
-    
-    # Regex para saludos y palabras específicas
-    # \b(palabra1|palabra2|...)\b -> Captura solo esas palabras exactas
-    regex_palabras = r'\b(hola|holi|olis|holis|holiwi|holiwwi|voy|ok|vale|bueno|xd)\b'
-    
-    # 3. Combinar todos los patrones en uno solo
-    # (?:...) es un grupo que no captura, es más eficiente
-    # Usamos | (OR) para unir los patrones
-    patron_total = f"({regex_risas}|{regex_palabras})"
-    
-    # 4. Aplicar la limpieza con str.replace
-    # Reemplaza todos los patrones encontrados con una cadena vacía
-    # case=False hace que ignore mayúsculas (JAJA, Hola, XD)
-    df['Mensaje'] = df['Mensaje'].str.replace(
-        patron_total, 
-        '', 
-        case=False, 
-        regex=True
+    df['Timestamp'] = pd.NaT
+    for fmt in formatos:
+        mask = df['Timestamp'].isna()
+        if not mask.any(): break
+        converted = pd.to_datetime(df.loc[mask, 'Timestamp_norm'], format=fmt, errors='coerce')
+        df.loc[mask, 'Timestamp'] = df.loc[mask, 'Timestamp'].fillna(converted)
+
+    df = df.dropna(subset=['Timestamp'])
+    df = df.drop(columns=['Timestamp_str', 'Timestamp_norm'])
+
+    # ---- Limpieza de texto ----
+    df['Autor'] = df['Autor'].apply(limpieza_estricta_texto)
+    df['Mensaje'] = df['Mensaje'].apply(limpieza_estricta_texto)
+
+    filtro_sistema = (
+        r"<multimedia omitido>|se eliminó este mensaje|ubicación: http|video omitido|imagen omitida|"
+        r"gif omitido|sticker omitido|audio omitido|llamada perdida|videollamada perdida|"
+        r"cambió tu código de seguridad|creó el grupo|añadió a|saliste del grupo|"
+        r"cambió el ícono de este grupo|cambió el asunto|te añadió| multimedia omitido"
     )
+    df = df[~df['Mensaje'].str.contains(filtro_sistema, na=False, regex=True)]
 
-    # 5. Limpieza de espacios sobrantes
-    # Al eliminar palabras, pueden quedar espacios dobles ("  ")
-    # Reemplazamos 2 o más espacios por uno solo
-    df['Mensaje'] = df['Mensaje'].str.replace(r'\s{2,}', ' ', regex=True)
-    df['Mensaje'] = df['Mensaje'].str.strip()
     df = df[df['Mensaje'].str.len() > 0]
-    
-    return df
+    df = df[df['Autor'].str.len() > 0]
 
+    if df.empty:
+        st.warning("El DataFrame quedó vacío tras la limpieza final.")
+        return pd.DataFrame(columns=['Timestamp', 'Autor', 'Mensaje'])
 
-
-
+    st.success(f"¡Chat procesado correctamente! ({len(df)} mensajes válidos).")
+    return df[['Timestamp', 'Autor', 'Mensaje']]
